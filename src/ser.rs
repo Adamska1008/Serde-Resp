@@ -1,23 +1,34 @@
+use std::io::Write;
 use serde::{ser, Serialize};
-use serde::ser::Impossible;
+use serde::ser::{Impossible, SerializeSeq};
 use crate::error::{Error, Result};
 use crate::error::Error::UnexpectedType;
+use crate::RESPType;
 
-pub struct Serializer {
-    output: String
+pub struct Serializer<W: Write> {
+    buffer: itoa::Buffer,
+    writer: W
 }
 
-pub fn to_string<T>(value: &T) -> Result<String>
-where T: Serialize
+pub fn to_string<T: Serialize>(value: &T) -> Result<String>
 {
+    let mut buf: Vec<u8> = Vec::new();
+    to_writer(value, &mut buf)?;
+    Ok(String::from_utf8(buf)?)
+}
+
+pub fn to_writer<T, W>(value: &T, writer: &mut W) -> Result<()>
+where T: Serialize, W: Write{
     let mut serializer = Serializer {
-        output: String::new(),
+        buffer: itoa::Buffer::new(),
+        writer
     };
     value.serialize(&mut serializer)?;
-    Ok(serializer.output)
+    Ok(())
 }
 
-impl<'a> ser::Serializer for &'a mut Serializer {
+impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W>
+{
     type Ok = ();
     type Error = Error;
     type SerializeSeq = Self;
@@ -49,7 +60,8 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     }
 
     fn serialize_i64(self, v: i64) -> Result<()> {
-        self.output += &format!(":{}\r\n", v);
+        let content = format!(":{}\r\n", self.buffer.format(v));
+        self.writer.write_all(content.as_bytes())?;
         Ok(())
     }
 
@@ -82,32 +94,36 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     }
 
     fn serialize_char(self, v: char) -> Result<()> {
-        self.output += &format!("$1\r\n{}\r\n", v);
+        self.writer.write(&[v as u8])?;
         Ok(())
     }
 
     fn serialize_str(self, v: &str) -> Result<()> {
-        self.output += &format!("${}\r\n{}\r\n", v.len(), v);
+        self.writer.write_all(v.as_bytes())?;
+        self.writer.write_all(b"\r\n")?;
         Ok(())
     }
 
     fn serialize_bytes(self, v: &[u8]) -> Result<()> {
-        self.output += &format!("${}\r\n{}\r\n", v.len(), String::from_utf8_lossy(v));
+        let prefix = format!("${}\r\n", self.buffer.format(v.len()));
+        self.writer.write_all(prefix.as_bytes())?;
+        self.writer.write_all(v)?;
+        self.writer.write_all(b"\r\n")?;
         Ok(())
     }
 
     fn serialize_none(self) -> Result<()> {
-        self.serialize_unit()
+        self.writer.write_all(b"$-1\r\n")?;
+        Ok(())
     }
 
-    fn serialize_some<T: ?Sized>(self, value: &T) -> Result<()> where T: Serialize {
+    fn serialize_some<T: ?Sized>(self, value: &T) -> Result<()>
+    where T: Serialize {
         value.serialize(self)
     }
 
-
     fn serialize_unit(self) -> Result<()> {
-        self.output += "$-1\r\n";
-        Ok(())
+        self.serialize_none()
     }
 
     fn serialize_unit_struct(self, _: &'static str) -> Result<()> {
@@ -130,8 +146,8 @@ impl<'a> ser::Serializer for &'a mut Serializer {
 
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq> {
         match len {
-            Some(x) => self.output += &format!("*{x}\r\n"),
-            None => self.output += &format!("*0\r\n")
+            Some(x) => self.writer.write_all((&format!("*{x}\r\n")).as_bytes())?,
+            None => self.writer.write_all((&format!("*-1\r\n")).as_bytes())?
         }
         Ok(self)
     }
@@ -161,7 +177,7 @@ impl<'a> ser::Serializer for &'a mut Serializer {
     }
 }
 
-impl<'a> ser::SerializeSeq for &'a mut Serializer {
+impl<'a, W: Write> ser::SerializeSeq for &'a mut Serializer<W> {
     type Ok = ();
     type Error = Error;
 
@@ -175,7 +191,7 @@ impl<'a> ser::SerializeSeq for &'a mut Serializer {
     }
 }
 
-impl<'a> ser::SerializeTuple for &'a mut Serializer {
+impl<'a, W: Write> ser::SerializeTuple for &'a mut Serializer<W> {
     type Ok = ();
     type Error = Error;
 
@@ -188,7 +204,7 @@ impl<'a> ser::SerializeTuple for &'a mut Serializer {
         Ok(())
     }
 }
-impl<'a> ser::SerializeTupleStruct for &'a mut Serializer {
+impl<'a, W: Write> ser::SerializeTupleStruct for &'a mut Serializer<W> {
     type Ok = ();
     type Error = Error;
 
@@ -202,53 +218,87 @@ impl<'a> ser::SerializeTupleStruct for &'a mut Serializer {
     }
 }
 
+impl Serialize for RESPType {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<<S as serde::Serializer>::Ok, <S as serde::Serializer>::Error>
+    where S: serde::Serializer {
+        match self {
+            RESPType::SimpleString(str) => {
+                serializer.serialize_str(&("+".to_owned() + str))
+            }
+            RESPType::Integer(num) => {
+                serializer.serialize_i64(*num)
+            }
+            RESPType::Error(err) => {
+                serializer.serialize_str(&("-".to_owned() + err))
+            }
+            RESPType::BulkString(str) => {
+                match str {
+                    Some(buf) => serializer.serialize_bytes(buf),
+                    None => serializer.serialize_none()
+                }
+            }
+            RESPType::Array(arr) => {
+                match arr {
+                    Some(vals) => {
+                        let mut serializer = serializer.serialize_seq(Some(vals.len()))?;
+                        for val in vals {
+                            serializer.serialize_element(val)?;
+                        }
+                        serializer.end()
+                    }
+                    None => serializer.serialize_none()
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
-mod serializer_test {
-    use crate::error::Result;
-    use crate::ser;
+mod ser_test {
+    use crate::Result;
+    use crate::RESPType;
+    use crate::ser::to_string;
 
     #[test]
-    fn test_string() -> Result<()> {
-        let str = "Hello, world!";
-        let expected = format!("${}\r\n{}\r\n", str.len(), str);
-        assert_eq!(ser::to_string(&str)?, expected);
-        let str = str.to_owned();
-        assert_eq!(ser::to_string(&str)?, expected);
+    fn test_simple_string() -> Result<()> {
+        let resp_sstr = RESPType::SimpleString("hello world".to_string());
+        assert_eq!(to_string(&resp_sstr)?, "+hello world\r\n");
         Ok(())
     }
 
     #[test]
-    fn test_number() -> Result<()>{
-        let number = 114514;
-        let expected = ":114514\r\n";
-        assert_eq!(ser::to_string(&number)?, expected);
+    fn test_bulk_string() -> Result<()> {
+        let buf = b"Hello, world!";
+        let resp_bstr = RESPType::BulkString(Some(buf.to_vec()));
+        assert_eq!(to_string(&resp_bstr)?, format!("${}\r\nHello, world!\r\n", buf.len()));
         Ok(())
     }
 
     #[test]
-    fn test_null() -> Result<()> {
-        let expected = "$-1\r\n";
-        let null: Option<&str> = None;
-        assert_eq!(ser::to_string(&null)?, expected);
+    fn test_error() -> Result<()> {
+        let err = "Err some errors";
+        let resp_err = RESPType::Error(err.to_owned());
+        assert_eq!(to_string(&resp_err)?, "-Err some errors\r\n");
+        Ok(())
+    }
+
+    #[test]
+    fn test_int() -> Result<()> {
+        let int = 114514i64;
+        let resp_int = RESPType::Integer(int);
+        assert_eq!(to_string(&resp_int)?, ":114514\r\n");
         Ok(())
     }
 
     #[test]
     fn test_array() -> Result<()> {
-        let array = [1, 2, 3, 4, 5];
-        let expected = "*5\r\n:1\r\n:2\r\n:3\r\n:4\r\n:5\r\n";
-        assert_eq!(ser::to_string(&array)?, expected);
-        let array = ["hello", "world"];
-        let expected = "*2\r\n$5\r\nhello\r\n$5\r\nworld\r\n";
-        assert_eq!(ser::to_string(&array)?,expected);
-        Ok(())
-    }
-
-    #[test]
-    fn test_tuple() -> Result<()> {
-        let tuple = (32, 7, "abcd");
-        let expected = "*3\r\n:32\r\n:7\r\n$4\r\nabcd\r\n";
-        assert_eq!(ser::to_string(&tuple)?, expected);
+        let arr = vec![
+            RESPType::Integer(32),
+            RESPType::SimpleString("foobar".to_owned()),
+            RESPType::BulkString(Some("really bulk".as_bytes().to_vec())),
+        ];
+        let resp_arr = RESPType::Array(Some(arr));
+        assert_eq!(to_string(&resp_arr)?, "*3\r\n:32\r\n+foobar\r\n$11\r\nreally bulk\r\n");
         Ok(())
     }
 }
