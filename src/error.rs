@@ -1,4 +1,4 @@
-use std::fmt::{Display, Formatter};
+use std::fmt::{Display, Formatter, write};
 use std::{io, string};
 use serde::{de, ser};
 
@@ -9,6 +9,7 @@ pub enum Error {
     Message(String),
     Eof,
     Syntax(usize),
+    TrailingCharacters,
     ExpectedSign(usize),
     ExpectedBulkString(usize),
     ExpectedArrayElement(usize),
@@ -27,6 +28,7 @@ impl Display for Error {
             Error::Message(msg) => write!(f, "{}", msg),
             Error::Eof => write!(f, "unexpected end of input"),
             Error::Syntax(pos) => write!(f, "expect one of these signs: + - : $ * in {}th bytes", pos),
+            Error::TrailingCharacters => write!(f, "trailing characters"),
             Error::ExpectedSign(pos) => write!(f, "expect one of these signs: + - : $ * in {}th bytes", pos),
             Error::ExpectedBulkString(pos) => write!(f, "expect bulk string in {}th bytes", pos),
             Error::ExpectedArrayElement(pos) => write!(f, "expect array element in {}th bytes", pos),
