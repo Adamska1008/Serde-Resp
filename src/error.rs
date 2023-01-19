@@ -1,6 +1,7 @@
-use std::fmt::{Display, Formatter, write};
-use std::{io, string};
+use core::num;
 use serde::{de, ser};
+use std::fmt::{Display, Formatter};
+use std::{io, string};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -10,7 +11,7 @@ pub enum Error {
     Eof,
     Syntax(usize),
     TrailingCharacters,
-    ExpectedSign(usize),
+    ExpectedSign(usize, char),
     ExpectedBulkString(usize),
     ExpectedArrayElement(usize),
     UnexpectedCR(usize),
@@ -19,7 +20,8 @@ pub enum Error {
     BulkStringOverflow,
     WrongSizeOfBulkString(usize, usize),
     FromUtf8Error(string::FromUtf8Error),
-    IoError(io::Error)
+    IoError(io::Error),
+    ParseIntError(num::ParseIntError),
 }
 
 impl Display for Error {
@@ -27,18 +29,27 @@ impl Display for Error {
         match self {
             Error::Message(msg) => write!(f, "{}", msg),
             Error::Eof => write!(f, "unexpected end of input"),
-            Error::Syntax(pos) => write!(f, "expect one of these signs: + - : $ * in {}th bytes", pos),
+            Error::Syntax(pos) => {
+                write!(f, "expect one of these signs: + - : $ * in {}th bytes", pos)
+            }
             Error::TrailingCharacters => write!(f, "trailing characters"),
-            Error::ExpectedSign(pos) => write!(f, "expect one of these signs: + - : $ * in {}th bytes", pos),
+            Error::ExpectedSign(pos, sign) => write!(f, "expect {} in {}th bytes", sign, pos),
             Error::ExpectedBulkString(pos) => write!(f, "expect bulk string in {}th bytes", pos),
-            Error::ExpectedArrayElement(pos) => write!(f, "expect array element in {}th bytes", pos),
+            Error::ExpectedArrayElement(pos) => {
+                write!(f, "expect array element in {}th bytes", pos)
+            }
             Error::UnexpectedCR(pos) => write!(f, "meet unexpected '\r' in {}th bytes", pos),
             Error::UnexpectedType => write!(f, "unexpected type"),
             Error::IntegerOverflow => write!(f, "integer overflow"),
             Error::BulkStringOverflow => write!(f, "bulk string overflow"),
-            Error::WrongSizeOfBulkString(expected, found) => write!(f, "wrong size of bulk string: expected {} bytes, found {} bytes", expected, found),
+            Error::WrongSizeOfBulkString(expected, found) => write!(
+                f,
+                "wrong size of bulk string: expected {} bytes, found {} bytes",
+                expected, found
+            ),
             Error::FromUtf8Error(err) => write!(f, "{err}"),
-            Error::IoError(err) => write!(f, "{err}")
+            Error::IoError(err) => write!(f, "{err}"),
+            Error::ParseIntError(err) => write!(f, "{err}"),
         }
     }
 }
@@ -46,19 +57,25 @@ impl Display for Error {
 impl std::error::Error for Error {}
 
 impl ser::Error for Error {
-    fn custom<T>(msg: T) -> Self where T: Display {
+    fn custom<T>(msg: T) -> Self
+    where
+        T: Display,
+    {
         Error::Message(msg.to_string())
     }
 }
 
 impl de::Error for Error {
-    fn custom<T>(msg: T) -> Self where T: Display {
+    fn custom<T>(msg: T) -> Self
+    where
+        T: Display,
+    {
         Error::Message(msg.to_string())
     }
 }
 
 impl From<string::FromUtf8Error> for Error {
-    fn from(err : string::FromUtf8Error) -> Self {
+    fn from(err: string::FromUtf8Error) -> Self {
         Error::FromUtf8Error(err)
     }
 }
@@ -66,5 +83,11 @@ impl From<string::FromUtf8Error> for Error {
 impl From<io::Error> for Error {
     fn from(err: io::Error) -> Self {
         Error::IoError(err)
+    }
+}
+
+impl From<num::ParseIntError> for Error {
+    fn from(err: num::ParseIntError) -> Self {
+        Error::ParseIntError(err)
     }
 }

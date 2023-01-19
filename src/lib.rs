@@ -1,3 +1,5 @@
+extern crate core;
+
 pub mod de;
 pub mod error;
 pub mod ser;
@@ -10,7 +12,8 @@ pub mod resp_type {
         SimpleString(String),
         Integer(i64),
         Error(String),
-        BulkString(Option<Vec<u8>>),
-        Array(Option<Vec<RESPType>>)
+        BulkString(Vec<u8>),
+        Array(Vec<RESPType>),
+        None
     }
 }

@@ -1,34 +1,35 @@
-use std::io::Write;
-use serde::{ser, Serialize};
-use serde::ser::{Impossible, SerializeSeq};
-use crate::error::{Error, Result};
 use crate::error::Error::UnexpectedType;
+use crate::error::{Error, Result};
 use crate::RESPType;
+use serde::ser::{Impossible, SerializeSeq};
+use serde::{ser, Serialize};
+use std::io::Write;
 
 pub struct Serializer<W: Write> {
     buffer: itoa::Buffer,
-    writer: W
+    writer: W,
 }
 
-pub fn to_string<T: Serialize>(value: &T) -> Result<String>
-{
+pub fn to_string<T: Serialize>(value: &T) -> Result<String> {
     let mut buf: Vec<u8> = Vec::new();
     to_writer(value, &mut buf)?;
     Ok(String::from_utf8(buf)?)
 }
 
 pub fn to_writer<T, W>(value: &T, writer: &mut W) -> Result<()>
-where T: Serialize, W: Write{
+where
+    T: Serialize,
+    W: Write,
+{
     let mut serializer = Serializer {
         buffer: itoa::Buffer::new(),
-        writer
+        writer,
     };
     value.serialize(&mut serializer)?;
     Ok(())
 }
 
-impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W>
-{
+impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W> {
     type Ok = ();
     type Error = Error;
     type SerializeSeq = Self;
@@ -118,7 +119,9 @@ impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W>
     }
 
     fn serialize_some<T: ?Sized>(self, value: &T) -> Result<()>
-    where T: Serialize {
+    where
+        T: Serialize,
+    {
         value.serialize(self)
     }
 
@@ -134,12 +137,22 @@ impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W>
         Err(UnexpectedType)
     }
 
-    fn serialize_newtype_struct<T: ?Sized>(self, _: &'static str, _: &T) -> Result<()> where T: Serialize {
+    fn serialize_newtype_struct<T: ?Sized>(self, _: &'static str, _: &T) -> Result<()>
+    where
+        T: Serialize,
+    {
         Err(UnexpectedType)
     }
 
-    fn serialize_newtype_variant<T: ?Sized>(self, _: &'static str, _: u32, _: &'static str, _: &T) -> Result<()>
-        where T: Serialize
+    fn serialize_newtype_variant<T: ?Sized>(
+        self,
+        _: &'static str,
+        _: u32,
+        _: &'static str,
+        _: &T,
+    ) -> Result<()>
+    where
+        T: Serialize,
     {
         Err(UnexpectedType)
     }
@@ -147,7 +160,7 @@ impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W>
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq> {
         match len {
             Some(x) => self.writer.write_all((&format!("*{x}\r\n")).as_bytes())?,
-            None => self.writer.write_all((&format!("*-1\r\n")).as_bytes())?
+            None => self.writer.write_all((&format!("*-1\r\n")).as_bytes())?,
         }
         Ok(self)
     }
@@ -156,11 +169,21 @@ impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W>
         self.serialize_seq(Some(len))
     }
 
-    fn serialize_tuple_struct(self, _: &'static str, len: usize) -> Result<Self::SerializeTupleStruct> {
+    fn serialize_tuple_struct(
+        self,
+        _: &'static str,
+        len: usize,
+    ) -> Result<Self::SerializeTupleStruct> {
         self.serialize_seq(Some(len))
     }
 
-    fn serialize_tuple_variant(self, _: &'static str, _: u32, _: &'static str, _: usize) -> Result<Self::SerializeTupleVariant> {
+    fn serialize_tuple_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        _: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeTupleVariant> {
         Err(UnexpectedType)
     }
 
@@ -172,7 +195,13 @@ impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W>
         Err(UnexpectedType)
     }
 
-    fn serialize_struct_variant(self, _: &'static str, _: u32, _: &'static str, _: usize) -> Result<Self::SerializeStructVariant> {
+    fn serialize_struct_variant(
+        self,
+        _: &'static str,
+        _: u32,
+        _: &'static str,
+        _: usize,
+    ) -> Result<Self::SerializeStructVariant> {
         Err(UnexpectedType)
     }
 }
@@ -182,7 +211,9 @@ impl<'a, W: Write> ser::SerializeSeq for &'a mut Serializer<W> {
     type Error = Error;
 
     fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<()>
-    where T: Serialize {
+    where
+        T: Serialize,
+    {
         value.serialize(&mut **self)
     }
 
@@ -196,7 +227,9 @@ impl<'a, W: Write> ser::SerializeTuple for &'a mut Serializer<W> {
     type Error = Error;
 
     fn serialize_element<T: ?Sized>(&mut self, value: &T) -> Result<()>
-    where T: Serialize {
+    where
+        T: Serialize,
+    {
         value.serialize(&mut **self)
     }
 
@@ -209,7 +242,9 @@ impl<'a, W: Write> ser::SerializeTupleStruct for &'a mut Serializer<W> {
     type Error = Error;
 
     fn serialize_field<T: ?Sized>(&mut self, value: &T) -> Result<()>
-    where T: Serialize {
+    where
+        T: Serialize,
+    {
         value.serialize(&mut **self)
     }
 
@@ -219,45 +254,35 @@ impl<'a, W: Write> ser::SerializeTupleStruct for &'a mut Serializer<W> {
 }
 
 impl Serialize for RESPType {
-    fn serialize<S>(&self, serializer: S) -> std::result::Result<<S as serde::Serializer>::Ok, <S as serde::Serializer>::Error>
-    where S: serde::Serializer {
+    fn serialize<S>(
+        &self,
+        ser: S,
+    ) -> std::result::Result<<S as serde::Serializer>::Ok, <S as serde::Serializer>::Error>
+    where
+        S: serde::Serializer,
+    {
         match self {
-            RESPType::SimpleString(str) => {
-                serializer.serialize_str(&("+".to_owned() + str))
-            }
-            RESPType::Integer(num) => {
-                serializer.serialize_i64(*num)
-            }
-            RESPType::Error(err) => {
-                serializer.serialize_str(&("-".to_owned() + err))
-            }
-            RESPType::BulkString(str) => {
-                match str {
-                    Some(buf) => serializer.serialize_bytes(buf),
-                    None => serializer.serialize_none()
-                }
-            }
+            RESPType::SimpleString(str) => ser.serialize_str(&("+".to_owned() + str)),
+            RESPType::Integer(num) => ser.serialize_i64(*num),
+            RESPType::Error(err) => ser.serialize_str(&("-".to_owned() + err)),
+            RESPType::BulkString(str) => ser.serialize_bytes(str),
             RESPType::Array(arr) => {
-                match arr {
-                    Some(vals) => {
-                        let mut serializer = serializer.serialize_seq(Some(vals.len()))?;
-                        for val in vals {
-                            serializer.serialize_element(val)?;
-                        }
-                        serializer.end()
-                    }
-                    None => serializer.serialize_none()
+                let mut ser = ser.serialize_seq(Some(arr.len()))?;
+                for val in arr {
+                    ser.serialize_element(val)?;
                 }
-            }
+                ser.end()
+            },
+            RESPType::None => ser.serialize_none()
         }
     }
 }
 
 #[cfg(test)]
 mod ser_test {
-    use crate::Result;
-    use crate::RESPType;
     use crate::ser::to_string;
+    use crate::RESPType;
+    use crate::Result;
 
     #[test]
     fn test_simple_string() -> Result<()> {
@@ -269,8 +294,11 @@ mod ser_test {
     #[test]
     fn test_bulk_string() -> Result<()> {
         let buf = b"Hello, world!";
-        let resp_bstr = RESPType::BulkString(Some(buf.to_vec()));
-        assert_eq!(to_string(&resp_bstr)?, format!("${}\r\nHello, world!\r\n", buf.len()));
+        let resp_bstr = RESPType::BulkString(buf.to_vec());
+        assert_eq!(
+            to_string(&resp_bstr)?,
+            format!("${}\r\nHello, world!\r\n", buf.len())
+        );
         Ok(())
     }
 
@@ -295,10 +323,13 @@ mod ser_test {
         let arr = vec![
             RESPType::Integer(32),
             RESPType::SimpleString("foobar".to_owned()),
-            RESPType::BulkString(Some("really bulk".as_bytes().to_vec())),
+            RESPType::BulkString("really bulk".as_bytes().to_vec()),
         ];
-        let resp_arr = RESPType::Array(Some(arr));
-        assert_eq!(to_string(&resp_arr)?, "*3\r\n:32\r\n+foobar\r\n$11\r\nreally bulk\r\n");
+        let resp_arr = RESPType::Array(arr);
+        assert_eq!(
+            to_string(&resp_arr)?,
+            "*3\r\n:32\r\n+foobar\r\n$11\r\nreally bulk\r\n"
+        );
         Ok(())
     }
 }
