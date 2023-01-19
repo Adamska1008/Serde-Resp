@@ -8,6 +8,7 @@ pub use crate::error::{Error, Result};
 pub use crate::resp_type::RESPType;
 
 pub mod resp_type {
+    #[derive(Debug, Eq, PartialEq)]
     pub enum RESPType {
         SimpleString(String),
         Integer(i64),

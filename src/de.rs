@@ -235,7 +235,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: Visitor<'de>,
     {
-        visitor.visit_str(self.parse_error()?)
+        visitor.visit_string(self.parse_error()?.to_owned())
     }
 
     fn deserialize_bytes<V>(self, visitor: V) -> Result<V::Value>
@@ -446,5 +446,55 @@ impl<'de> Deserialize<'de> for RESPType {
         D: serde::Deserializer<'de>,
     {
         de.deserialize_any(RESPVisitor)
+    }
+}
+
+#[cfg(test)]
+mod deserializer_test {
+    use crate::{de, RESPType};
+    use crate::Result;
+
+    #[test]
+    fn test_simple_string() -> Result<()> {
+        let buf = "+hello\r\n";
+        let sstr: RESPType = de::from_str(buf)?;
+        assert_eq!(sstr, RESPType::SimpleString("hello".to_string()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_error() -> Result<()> {
+        let err = "-Err unknown error\r\n";
+        let resp_err: RESPType = de::from_str(err)?;
+        assert_eq!(resp_err, RESPType::Error("Err unknown error".to_string()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_integer() -> Result<()> {
+        let int = ":114514\r\n";
+        let resp_int: RESPType = de::from_str(int)?;
+        assert_eq!(resp_int, RESPType::Integer(114514));
+        Ok(())
+    }
+
+    #[test]
+    fn test_bulk_string() -> Result<()> {
+        let str = "$13\r\nhello, world!\r\n";
+        let resp_str: RESPType = de::from_str(str)?;
+        assert_eq!(resp_str, RESPType::BulkString("hello, world!".as_bytes().to_vec()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_array() -> Result<()> {
+        let arr = "*3\r\n:32\r\n+foobar\r\n$11\r\nreally bulk\r\n";
+        let resp_arr: RESPType = de::from_str(arr)?;
+        assert_eq!(resp_arr, RESPType::Array(vec![
+            RESPType::Integer(32),
+            RESPType::SimpleString("foobar".to_owned()),
+            RESPType::BulkString("really bulk".as_bytes().to_vec()),
+        ]));
+        Ok(())
     }
 }
