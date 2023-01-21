@@ -36,4 +36,4 @@ fn main() {
 }
 ```
 
-`*-1\r\n` or `$-1\r\n` will be both deserialized as `RESPType::None`. If you serialize a `RESPType`, you get `$-1\r\n`. It simply the process, base on practical experience. 
+`*-1\r\n` or `$-1\r\n` will be both deserialized as `RESPType::None`. If you serialize a `RESPType::None`, you get `$-1\r\n`. It simplfy the process, base on practical experience. 
