@@ -1,7 +1,9 @@
 [package]
 name = "serde_resp"
 version = "0.1.0"
+authors = ["Zijian Zang <2639980868@qq.com>"]
 edition = "2021"
+description = "Serializing and deserializing Rust data from or into RESP data format."
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

@@ -1,4 +1,3 @@
-use crate::error::Error::UnexpectedType;
 use crate::error::{Error, Result};
 use crate::RESPType;
 use serde::ser::{Impossible, SerializeSeq};
@@ -78,20 +77,16 @@ impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W> {
         self.serialize_i64(i64::from(v))
     }
 
-    fn serialize_u64(self, v: u64) -> Result<()> {
-        if let Ok(v) = i64::try_from(v) {
-            self.serialize_i64(v)
-        } else {
-            Err(Error::IntegerOverflow)
-        }
+    fn serialize_u64(self, _: u64) -> Result<()> {
+        unimplemented!()
     }
 
     fn serialize_f32(self, _: f32) -> Result<()> {
-        Err(Error::UnexpectedType)
+        unimplemented!()
     }
 
     fn serialize_f64(self, _: f64) -> Result<()> {
-        Err(Error::UnexpectedType)
+        unimplemented!()
     }
 
     fn serialize_char(self, v: char) -> Result<()> {
@@ -130,18 +125,18 @@ impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W> {
     }
 
     fn serialize_unit_struct(self, _: &'static str) -> Result<()> {
-        Err(UnexpectedType)
+        unimplemented!()
     }
 
     fn serialize_unit_variant(self, _: &'static str, _: u32, _: &'static str) -> Result<()> {
-        Err(UnexpectedType)
+        unimplemented!()
     }
 
     fn serialize_newtype_struct<T: ?Sized>(self, _: &'static str, _: &T) -> Result<()>
     where
         T: Serialize,
     {
-        Err(UnexpectedType)
+        unimplemented!()
     }
 
     fn serialize_newtype_variant<T: ?Sized>(
@@ -154,7 +149,7 @@ impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W> {
     where
         T: Serialize,
     {
-        Err(UnexpectedType)
+        unimplemented!()
     }
 
     fn serialize_seq(self, len: Option<usize>) -> Result<Self::SerializeSeq> {
@@ -184,15 +179,15 @@ impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W> {
         _: &'static str,
         _: usize,
     ) -> Result<Self::SerializeTupleVariant> {
-        Err(UnexpectedType)
+        unimplemented!()
     }
 
     fn serialize_map(self, _: Option<usize>) -> Result<Self::SerializeMap> {
-        Err(UnexpectedType)
+        unimplemented!()
     }
 
     fn serialize_struct(self, _: &'static str, _: usize) -> Result<Self::SerializeStruct> {
-        Err(UnexpectedType)
+        unimplemented!()
     }
 
     fn serialize_struct_variant(
@@ -202,7 +197,7 @@ impl<'a, W: Write> ser::Serializer for &'a mut Serializer<W> {
         _: &'static str,
         _: usize,
     ) -> Result<Self::SerializeStructVariant> {
-        Err(UnexpectedType)
+        unimplemented!()
     }
 }
 
@@ -329,6 +324,16 @@ mod ser_test {
         assert_eq!(
             to_string(&resp_arr)?,
             "*3\r\n:32\r\n+foobar\r\n$11\r\nreally bulk\r\n"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_null() -> Result<()> {
+        let null = RESPType::None;
+        assert_eq!(
+            to_string(&null)?,
+            "$-1\r\n"
         );
         Ok(())
     }

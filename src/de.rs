@@ -1,7 +1,8 @@
 use crate::{Error, RESPType, Result};
-use serde::de::{DeserializeSeed, SeqAccess, Visitor};
+use serde::de::{DeserializeOwned, DeserializeSeed, SeqAccess, Visitor};
 use serde::{de, Deserialize};
 use std::fmt::Formatter;
+use std::io::Read;
 
 const MAX_BULK_STRING_SIZE: usize = 512 * 1024 * 1024;
 
@@ -16,11 +17,28 @@ impl<'de> Deserializer<'de> {
     }
 }
 
-pub fn from_str<'a, T>(s: &'a str) -> Result<T>
+pub fn from_str<T>(s: & str) -> Result<T>
 where
-    T: Deserialize<'a>,
+    T: DeserializeOwned,
 {
     let mut de = Deserializer::from_str(s);
+    let t = T::deserialize(&mut de)?;
+    if de.input.is_empty() {
+        Ok(t)
+    } else {
+        Err(Error::TrailingCharacters)
+    }
+}
+
+pub fn from_reader<R, T>(reader: &mut R) -> Result<T>
+where
+    R: Read,
+    T: DeserializeOwned
+{
+    let mut buf= Vec::new();
+    reader.read_to_end(&mut buf)?;
+    let s = String::from_utf8(buf)?;
+    let mut de = Deserializer::from_str(&s);
     let t = T::deserialize(&mut de)?;
     if de.input.is_empty() {
         Ok(t)
@@ -57,6 +75,7 @@ impl<'de> Deserializer<'de> {
     // Reading until meet "\r\n".
     // Consume all reading bytes and return them.
     // Consume "\r\n" as well, but not return.
+    // If not found "\r\n", return Error::Eof
     fn read_to_end(&mut self) -> Result<&'de str> {
         match self.input.find("\r\n") {
             Some(len) => {
@@ -73,37 +92,49 @@ impl<'de> Deserializer<'de> {
         }
     }
 
+    // Assume the next part is an integer and read it.
+    // Consume all the reading bytes.
     fn parse_int(&mut self) -> Result<i64> {
-        let prefix = self.next_char()?;
+        let prefix = self.peek_char()?;
         if prefix != ':' {
-            return Err(Error::ExpectedSign(self.offset, ':'));
+            return Err(Error::UnexpectedSign{ found: prefix, expected: ':', pos: self.offset});
         }
+        self.next_char()?;
         let str = self.read_to_end()?;
         let int = str.parse::<i64>()?;
         Ok(int)
     }
 
+    // Assume the next part is a simple string and read it.
+    // Consume all the reading bytes.
     fn parse_simple_string(&mut self) -> Result<&'de str> {
-        let prefix = self.next_char()?;
+        let prefix = self.peek_char()?;
         if prefix != '+' {
-            return Err(Error::ExpectedSign(self.offset, '+'));
+            return Err(Error::UnexpectedSign{ found: prefix, expected: '+', pos: self.offset});
         }
+        self.next_char()?;
         self.read_to_end()
     }
 
+    // Assume the next part is an error and read it.
+    // Consume all the reading bytes.
     fn parse_error(&mut self) -> Result<&str> {
-        let prefix = self.next_char()?;
+        let prefix = self.peek_char()?;
         if prefix != '-' {
-            return Err(Error::ExpectedSign(self.offset, '-'));
+            return Err(Error::UnexpectedSign{ found: prefix, expected: '-', pos: self.offset});
         }
+        self.next_char()?;
         self.read_to_end()
     }
 
+    // Assume the next part is a bulk string and read it.
+    // Consume all the reading bytes.
     fn parse_bytes(&mut self) -> Result<Option<&'de [u8]>> {
-        let prefix = self.next_char()?;
+        let prefix = self.peek_char()?;
         if prefix != '$' {
-            return Err(Error::ExpectedSign(self.offset, '$'));
+            return Err(Error::UnexpectedSign{ found: prefix, expected: '$', pos: self.offset});
         }
+        self.next_char()?;
         let str: &'de str = self.read_to_end()?;
         let len = str.parse::<i32>()?;
         if len > MAX_BULK_STRING_SIZE as i32 {
@@ -116,6 +147,7 @@ impl<'de> Deserializer<'de> {
             return Err(Error::Eof);
         }
         let bulk_str = self.skip(len as usize)?;
+
         // skip "\r\n"
         self.skip(2)?;
         Ok(Some(bulk_str.as_bytes()))
@@ -135,7 +167,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
             ':' => self.deserialize_i64(visitor),
             '$' => self.deserialize_bytes(visitor),
             '*' => self.deserialize_seq(visitor),
-            _ => Err(Error::UnexpectedType),
+            _ => Err(Error::ExpectedSign(self.offset)),
         }
     }
 
@@ -296,7 +328,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
             let value = visitor.visit_seq(RESPArrayAccess::new(self, num as usize))?;
             Ok(value)
         } else {
-            Err(Error::ExpectedSign(self.offset, '*'))
+            Err(Error::UnexpectedSign{pos: self.offset, found: self.peek_char()?, expected: '*'})
         }
     }
 
@@ -450,8 +482,9 @@ impl<'de> Deserialize<'de> for RESPType {
 }
 
 #[cfg(test)]
-mod deserializer_test {
-    use crate::{de, RESPType};
+mod de_test {
+    use crate::{de, Error, RESPType};
+    use crate::error::ErrorKind;
     use crate::Result;
 
     #[test]
@@ -495,6 +528,75 @@ mod deserializer_test {
             RESPType::SimpleString("foobar".to_owned()),
             RESPType::BulkString("really bulk".as_bytes().to_vec()),
         ]));
+        Ok(())
+    }
+
+    #[test]
+    fn test_null() -> Result<()> {
+        let null_bulk_str = "$-1\r\n";
+        let null_array = "*-1\r\n";
+        let resp_null: RESPType = de::from_str(null_bulk_str)?;
+        assert_eq!(resp_null, RESPType::None);
+        let resp_null: RESPType = de::from_str(null_array)?;
+        assert_eq!(resp_null, RESPType::None);
+        Ok(())
+    }
+
+    #[test]
+    fn test_error_eof() -> Result<()>{
+        let bulk_str = "$6\r\nhello\r\n";
+        assert!(
+            de::from_str::<RESPType>(bulk_str)
+                .is_err_and(|err| err.kind() == ErrorKind::Eof )
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_error_expected_sign() -> Result<()> {
+        let array = "*2\r\n+514\r\n12\r\n";
+        assert!(
+            de::from_str::<RESPType>(array)
+                .is_err_and(|err| {
+                    if let Error::ExpectedSign(pos) = err {
+                        return pos == 10;
+                    }
+                    false
+                })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_error_unexpected_cr() -> Result<()> {
+        let simple_str = "+123\r124\r\n";
+        assert!(
+            de::from_str::<RESPType>(simple_str)
+                .is_err_and(|err| {
+                    if let Error::UnexpectedCR(pos) = err {
+                        return pos == 4;
+                    }
+                    false
+                })
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_error_integer_overflow() -> Result<()> {
+        let int = ":11111111111111111111111\r\n";
+        assert!(
+            de::from_str::<RESPType>(int)
+                .is_err_and(|err| err.kind() == ErrorKind::ParseIntError)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn from_reader() -> Result<()> {
+        let mut buf = b"+hello\r\n".as_slice();
+        let resp_str: RESPType = de::from_reader(&mut buf)?;
+        assert_eq!(resp_str, RESPType::SimpleString("hello".to_owned()));
         Ok(())
     }
 }

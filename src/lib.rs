@@ -1,3 +1,4 @@
+#![feature(is_some_and)]
 extern crate core;
 
 pub mod de;
