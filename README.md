@@ -1,6 +1,6 @@
 # Serde Resp
 
-Serde Resp is used for serializing and deserializing Rust data structures from or into RESP message. It supports `to_string`, `to_writer` and `from_string` in serde. More functions will be added soon.
+Serde Resp is used for serializing and deserializing Rust data structures from or into RESP message. It supports `to_string`, `to_writer` and `from_string` `from_reader` functions. More functions will be added soon.
 
 ## Usage
 The repository use `RESPType` to represent specific RESP data format. Their definition is:
@@ -18,17 +18,12 @@ pub enum RESPType {
 Always use RESPType to serialize RESP data format, or the efficiency and usability is not guaranteed.
 
 ```rust
-use serde_rust::ser::to_string;
-use serde_rust::RESPType;
-use serde_rust::Result;
+use serde_resp::to_string;
+use serde_resp::{array, simple, bulk, i64};
+use serde_resp::Result;
 
 fn main() -> Result<()> {
-    let arr = vec![
-        RESPType::Integer(32),
-        RESPType::SimpleString("foobar".to_owned()),
-        RESPType::BulkString("really bulk".as_bytes().to_vec()),
-    ];
-    let resp_arr = RESPType::Array(arr);
+    let resp_arr = array!(i64!(32), simple!("foobar"), bulk!("really bulk"));
     assert_eq!(
         to_string(&resp_arr)?,
         "*3\r\n:32\r\n+foobar\r\n$11\r\nreally bulk\r\n"
@@ -39,17 +34,14 @@ fn main() -> Result<()> {
 `*-1\r\n` or `$-1\r\n` will be both deserialized as `RESPType::None`. If you serialize a `RESPType::None`, you get `$-1\r\n`. It simplfy the process, base on practical experience. 
 
 ```rust
-use serde_rust::de::from_str;
-use serde_rust::RESPType;
+use serde_resp::RESPType;
 
 let arr = "*3\r\n:32\r\n+foobar\r\n$11\r\nreally bulk\r\n";
-let resp_arr: RESPType = de::from_str(arr)?;
-assert_eq!(resp_arr, RESPType::Array(vec![
-    RESPType::Integer(32),
-    RESPType::SimpleString("foobar".to_owned()),
-    RESPType::BulkString("really bulk".as_bytes().to_vec()),
-]));
-Ok(())
+let resp_arr: RESPType = serde_resp::from_str(arr)?;
+assert_eq!(
+    resp_arr, 
+    array!(i64!(32), simple!("foobar"), bulk!("really bulk")
+);
 ```
 ## Advantage
 Sound error types with offset information for quick fixed location.
